@@ -25,6 +25,7 @@ class CIFAR10Loader:
 class MLP:
     def __init__(self, n_input, n_hidden, n_output):
         self.params = self.init_params(n_input, n_hidden, n_output)
+        self.velocity = {'W1': 0, 'b1': 0, 'W2': 0, 'b2': 0}
 
     @staticmethod
     def init_params(n_input, n_hidden, n_output):
@@ -58,24 +59,25 @@ class MLP:
         cache = (X, Z1, A1, Z2, A2)
         return A2, cache
 
-    def backward(self, cache, y):
+    def backward(self, cache, y, lambda_reg=0.001):
         X, Z1, A1, Z2, A2 = cache
         m = X.shape[0]
         dZ2 = A2.copy(); dZ2[np.arange(m), y] -= 1; dZ2 /= m
         grads = {}
-        grads['dW2'] = A1.T @ dZ2
+        grads['dW2'] = A1.T @ dZ2 + lambda_reg * self.params['W2']
         grads['db2'] = dZ2.sum(axis=0,keepdims=True)
         dA1 = dZ2 @ self.params['W2'].T
         dZ1 = dA1 * self.relu_grad(Z1)
-        grads['dW1'] = X.T @ dZ1
+        grads['dW1'] = X.T @ dZ1 + lambda_reg * self.params['W1']
         grads['db1'] = dZ1.sum(axis=0, keepdims=True)
         return grads
 
-    def update(self, grads, lr):
+    def update(self, grads, lr, beta=0.9):
         for key in grads:
-            self.params[key[1:]] -= lr * grads[key]
+            self.velocity[key[1:]] = beta * self.velocity[key[1:]] + (1 - beta) * grads[key]
+            self.params[key[1:]] -= lr * self.velocity[key[1:]]
 
-    def train(self, X, y, X_val, y_val, lr = 0.01, epochs=50, batch_size=128):
+    def train(self, X, y, X_val, y_val, lr = 0.01, epochs=50, batch_size=128, lambda_reg=0.001):
         n = X.shape[0]
         for ep in range(epochs):
             perm = np.random.permutation(n)
@@ -83,7 +85,7 @@ class MLP:
             for i in range(0, n, batch_size):
                 xb, yb = Xs[i:i+batch_size], ys[i:i+batch_size]
                 A2, cache = self.forward(xb)
-                grads = self.backward(cache, yb)
+                grads = self.backward(cache, yb, lambda_reg)
                 self.update(grads, lr)
 
 
@@ -95,7 +97,7 @@ loader = CIFAR10Loader()
 X_train, y_train, X_test, y_test = loader.load_data()
 
 mlp = MLP(n_input=3072, n_hidden=512, n_output=10)
-mlp.train(X_train, y_train, X_test, y_test, lr=0.001, epochs=50, batch_size=128)
+mlp.train(X_train, y_train, X_test, y_test, lr=0.001, epochs=10, batch_size=128)
 
 import matplotlib
 
